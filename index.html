@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sequoia Guild Raids</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0d1117;
+    color: #e6edf3;
+    min-height: 100vh;
+    padding: 24px 16px;
+  }
+
+  .container {
+    max-width: 720px;
+    margin: 0 auto;
+  }
+
+  header {
+    text-align: center;
+    margin-bottom: 32px;
+  }
+
+  h1 {
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: #58a6ff;
+    margin-bottom: 16px;
+  }
+
+  .week-nav {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    margin-bottom: 8px;
+  }
+
+  .week-nav button {
+    background: #21262d;
+    border: 1px solid #30363d;
+    color: #e6edf3;
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 1.1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s;
+  }
+
+  .week-nav button:hover:not(:disabled) { background: #30363d; }
+  .week-nav button:disabled { opacity: 0.3; cursor: default; }
+
+  .week-label {
+    font-size: 1.05rem;
+    font-weight: 600;
+    min-width: 280px;
+    text-align: center;
+  }
+
+  .week-label span { color: #8b949e; font-weight: 400; }
+
+  .subtitle {
+    color: #8b949e;
+    font-size: 0.85rem;
+    margin-top: 6px;
+  }
+
+  .tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 20px;
+    background: #161b22;
+    border-radius: 10px;
+    padding: 4px;
+  }
+
+  .tab {
+    flex: 1;
+    padding: 8px 12px;
+    background: transparent;
+    border: none;
+    color: #8b949e;
+    font-size: 0.85rem;
+    font-weight: 600;
+    border-radius: 7px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .tab:hover { color: #e6edf3; }
+  .tab.active { background: #21262d; color: #e6edf3; }
+
+  .tab[data-tab="ALL"].active { color: #58a6ff; }
+  .tab[data-tab="TCC"].active { color: #f0883e; }
+  .tab[data-tab="NOL"].active { color: #a5d6ff; }
+  .tab[data-tab="NOTG"].active { color: #7ee787; }
+  .tab[data-tab="TNA"].active { color: #d2a8ff; }
+
+  .leaderboard {
+    background: #161b22;
+    border: 1px solid #21262d;
+    border-radius: 12px;
+    overflow: hidden;
+  }
+
+  .lb-header {
+    display: grid;
+    grid-template-columns: 48px 1fr 100px;
+    padding: 12px 16px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #8b949e;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border-bottom: 1px solid #21262d;
+  }
+
+  .lb-row {
+    display: grid;
+    grid-template-columns: 48px 1fr 100px;
+    padding: 12px 16px;
+    align-items: center;
+    border-bottom: 1px solid #21262d14;
+    transition: background 0.1s;
+  }
+
+  .lb-row:hover { background: #1c2128; }
+  .lb-row:last-child { border-bottom: none; }
+
+  .rank {
+    font-weight: 700;
+    font-size: 0.95rem;
+  }
+
+  .rank-1 { color: #ffd700; }
+  .rank-2 { color: #c0c0c0; }
+  .rank-3 { color: #cd7f32; }
+
+  .player-name {
+    font-weight: 500;
+    font-size: 0.95rem;
+  }
+
+  .delta {
+    text-align: right;
+    font-weight: 700;
+    font-size: 0.95rem;
+    color: #7ee787;
+  }
+
+  .empty-state {
+    padding: 48px 16px;
+    text-align: center;
+    color: #8b949e;
+  }
+
+  .stats-bar {
+    display: flex;
+    justify-content: center;
+    gap: 24px;
+    margin-top: 16px;
+    font-size: 0.85rem;
+    color: #8b949e;
+  }
+
+  .stats-bar strong { color: #e6edf3; }
+
+  .loading {
+    text-align: center;
+    padding: 64px 16px;
+    color: #8b949e;
+  }
+
+  @media (max-width: 480px) {
+    h1 { font-size: 1.4rem; }
+    .week-label { min-width: 200px; font-size: 0.9rem; }
+    .lb-header, .lb-row { grid-template-columns: 40px 1fr 80px; padding: 10px 12px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <header>
+    <h1>Sequoia Guild Raids</h1>
+    <div class="week-nav">
+      <button id="prev-week" title="Previous week">&#8592;</button>
+      <div class="week-label" id="week-label">Loading...</div>
+      <button id="next-week" title="Next week">&#8594;</button>
+    </div>
+    <div class="subtitle" id="subtitle"></div>
+  </header>
+
+  <div class="tabs" id="tabs">
+    <button class="tab active" data-tab="ALL">ALL</button>
+    <button class="tab" data-tab="TCC">TCC</button>
+    <button class="tab" data-tab="NOL">NOL</button>
+    <button class="tab" data-tab="NOTG">NOTG</button>
+    <button class="tab" data-tab="TNA">TNA</button>
+  </div>
+
+  <div class="leaderboard" id="leaderboard">
+    <div class="loading">Loading data...</div>
+  </div>
+
+  <div class="stats-bar" id="stats-bar"></div>
+</div>
+
+<script>
+const BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+  ? '.' : '.';
+
+let meta = null;
+let currentWeekData = null;  // { leaderboards, total_players, active_players, label }
+let weekIndex = 0;           // 0 = most recent, 1 = one week back, etc.
+let allWeeks = [];           // ordered newest first: ["2026-W15", "2026-W14", ...]
+let activeTab = 'ALL';
+let cache = {};              // week key -> data
+
+async function fetchJSON(url) {
+  const resp = await fetch(url + '?t=' + Date.now());
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  return resp.json();
+}
+
+async function init() {
+  try {
+    meta = await fetchJSON(`${BASE}/data/meta.json`);
+  } catch (e) {
+    document.getElementById('leaderboard').innerHTML = '<div class="empty-state">Could not load data. Is the scraper running?</div>';
+    return;
+  }
+
+  // Build week list: available archived weeks + current week
+  const archived = [...(meta.available_weeks || [])];
+  allWeeks = [...archived, meta.current_week].sort().reverse();
+
+  // Default: show most recent. But if within 24h of week boundary, show previous completed week.
+  const now = new Date();
+  const weekStart = new Date(meta.week_start);
+  const hoursSinceStart = (now - weekStart) / 3600000;
+  if (hoursSinceStart < 24 && allWeeks.length > 1) {
+    weekIndex = 1;  // show completed week
+  } else {
+    weekIndex = 0;
+  }
+
+  setupTabs();
+  setupNav();
+  await loadWeek();
+}
+
+function setupTabs() {
+  document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      activeTab = tab.dataset.tab;
+      render();
+    });
+  });
+}
+
+function setupNav() {
+  document.getElementById('prev-week').addEventListener('click', async () => {
+    if (weekIndex < allWeeks.length - 1) {
+      weekIndex++;
+      await loadWeek();
+    }
+  });
+  document.getElementById('next-week').addEventListener('click', async () => {
+    if (weekIndex > 0) {
+      weekIndex--;
+      await loadWeek();
+    }
+  });
+}
+
+async function loadWeek() {
+  const weekKey = allWeeks[weekIndex];
+  document.getElementById('prev-week').disabled = weekIndex >= allWeeks.length - 1;
+  document.getElementById('next-week').disabled = weekIndex <= 0;
+
+  if (weekKey === meta.current_week) {
+    // Current week: compute live from baseline + latest
+    await loadCurrentWeek();
+  } else {
+    // Archived week: load pre-computed
+    await loadArchivedWeek(weekKey);
+  }
+
+  render();
+}
+
+async function loadCurrentWeek() {
+  try {
+    const [baseline, latest] = await Promise.all([
+      fetchJSON(`${BASE}/data/baseline.json`),
+      fetchJSON(`${BASE}/data/latest.json`),
+    ]);
+
+    const leaderboards = computeLeaderboards(baseline.players, latest.players);
+    const totalPlayers = Object.keys(latest.players).length;
+    const activePlayers = leaderboards.ALL.length;
+
+    const weekStart = new Date(meta.week_start);
+    const weekEnd = new Date(weekStart.getTime() + 7 * 86400000);
+    const label = formatDateRange(weekStart, weekEnd);
+
+    currentWeekData = {
+      week: meta.current_week,
+      label,
+      leaderboards,
+      total_players: totalPlayers,
+      active_players: activePlayers,
+      last_scrape: meta.last_scrape,
+      is_current: true,
+    };
+  } catch (e) {
+    currentWeekData = null;
+  }
+}
+
+async function loadArchivedWeek(weekKey) {
+  if (!cache[weekKey]) {
+    try {
+      cache[weekKey] = await fetchJSON(`${BASE}/data/weeks/${weekKey}.json`);
+    } catch (e) {
+      cache[weekKey] = null;
+    }
+  }
+  currentWeekData = cache[weekKey];
+  if (currentWeekData) currentWeekData.is_current = false;
+}
+
+function computeLeaderboards(baseline, latest) {
+  const raidTypes = ['tcc', 'nol', 'notg', 'tna'];
+  const deltas = { ALL: [], TCC: [], NOL: [], NOTG: [], TNA: [] };
+
+  for (const player of Object.keys(latest)) {
+    const end = latest[player];
+    const start = baseline[player] || { tcc: 0, nol: 0, notg: 0, tna: 0 };
+    let total = 0;
+
+    for (const rt of raidTypes) {
+      let diff = end[rt] - start[rt];
+      if (diff < 0) diff = end[rt]; // data reset, use absolute
+      if (diff > 0) {
+        deltas[rt.toUpperCase()].push({ name: player, delta: diff });
+        total += diff;
+      }
+    }
+
+    if (total > 0) {
+      deltas.ALL.push({ name: player, delta: total });
+    }
+  }
+
+  for (const key of Object.keys(deltas)) {
+    deltas[key].sort((a, b) => b.delta - a.delta);
+    deltas[key] = deltas[key].slice(0, 10);
+  }
+
+  return deltas;
+}
+
+function formatDateRange(start, end) {
+  const opts = { month: 'short', day: 'numeric' };
+  const s = start.toLocaleDateString('en-US', opts);
+  const e = end.toLocaleDateString('en-US', { ...opts, year: 'numeric' });
+  return `${s} – ${e}`;
+}
+
+function timeAgo(isoString) {
+  const diff = Date.now() - new Date(isoString).getTime();
+  const hours = Math.floor(diff / 3600000);
+  const mins = Math.floor(diff / 60000);
+  if (hours > 24) return `${Math.floor(hours / 24)}d ago`;
+  if (hours > 0) return `${hours}h ago`;
+  return `${mins}m ago`;
+}
+
+function render() {
+  const lb = document.getElementById('leaderboard');
+  const label = document.getElementById('week-label');
+  const subtitle = document.getElementById('subtitle');
+  const statsBar = document.getElementById('stats-bar');
+
+  if (!currentWeekData) {
+    lb.innerHTML = '<div class="empty-state">No data for this week</div>';
+    label.textContent = allWeeks[weekIndex] || 'Unknown';
+    subtitle.textContent = '';
+    statsBar.innerHTML = '';
+    return;
+  }
+
+  const d = currentWeekData;
+  const weekNum = (d.week || allWeeks[weekIndex]).replace(/^\d{4}-W/, 'Week ');
+  label.innerHTML = `${weekNum} <span>(${d.label})</span>`;
+
+  if (d.is_current && d.last_scrape) {
+    subtitle.textContent = `Live \u2022 Updated ${timeAgo(d.last_scrape)}`;
+  } else {
+    subtitle.textContent = 'Final';
+  }
+
+  const entries = d.leaderboards[activeTab] || [];
+
+  if (entries.length === 0) {
+    lb.innerHTML = '<div class="empty-state">No raids recorded yet</div>';
+    statsBar.innerHTML = '';
+    return;
+  }
+
+  let html = `<div class="lb-header"><div>#</div><div>Player</div><div style="text-align:right">Raids</div></div>`;
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i];
+    const rankClass = i < 3 ? ` rank-${i + 1}` : '';
+    html += `<div class="lb-row">
+      <div class="rank${rankClass}">${i + 1}</div>
+      <div class="player-name">${escapeHtml(e.name)}</div>
+      <div class="delta">+${e.delta.toLocaleString()}</div>
+    </div>`;
+  }
+  lb.innerHTML = html;
+
+  statsBar.innerHTML = `
+    <div><strong>${d.total_players || '?'}</strong> members</div>
+    <div><strong>${d.active_players || '?'}</strong> active raiders</div>
+  `;
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+init();
+</script>
+</body>
+</html>
