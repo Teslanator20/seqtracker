@@ -2,7 +2,7 @@ name: Scrape SEQ Raids
 
 on:
   schedule:
-    - cron: '0 5,11,17,23 * * *'  # Every 6 hours, 23:00 UTC = 01:00 CEST (week boundary)
+    - cron: '*/30 * * * *'  # Every 30 minutes
   workflow_dispatch:
 
 jobs:
