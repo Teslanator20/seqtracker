@@ -320,13 +320,15 @@ async function loadCurrentWeek() {
       fetchJSON(`${BASE}/data/latest.json`),
     ]);
 
-    const leaderboards = computeLeaderboards(baseline.players, latest.players);
+    const { leaderboards, totalRaids } = computeLeaderboards(baseline.players, latest.players);
     const totalPlayers = Object.keys(latest.players).length;
     const activePlayers = leaderboards.ALL.length;
 
     const weekStart = new Date(meta.week_start);
     const weekEnd = new Date(weekStart.getTime() + 7 * 86400000);
     const label = formatDateRange(weekStart, weekEnd);
+    const daysElapsed = Math.max(1, (Date.now() - weekStart.getTime()) / 86400000);
+    const raidsPerDay = Math.round(totalRaids / daysElapsed);
 
     currentWeekData = {
       week: meta.current_week,
@@ -334,6 +336,8 @@ async function loadCurrentWeek() {
       leaderboards,
       total_players: totalPlayers,
       active_players: activePlayers,
+      total_raids: totalRaids,
+      raids_per_day: raidsPerDay,
       last_scrape: meta.last_scrape,
       is_current: true,
     };
@@ -357,6 +361,7 @@ async function loadArchivedWeek(weekKey) {
 function computeLeaderboards(baseline, latest) {
   const raidTypes = ['tcc', 'nol', 'notg', 'tna'];
   const deltas = { ALL: [], TCC: [], NOL: [], NOTG: [], TNA: [] };
+  let totalRaids = 0;
 
   for (const player of Object.keys(latest)) {
     if (!baseline[player]) continue; // New player, no baseline — skip
@@ -375,6 +380,7 @@ function computeLeaderboards(baseline, latest) {
 
     if (total > 0) {
       deltas.ALL.push({ name: player, delta: total });
+      totalRaids += total;
     }
   }
 
@@ -383,14 +389,16 @@ function computeLeaderboards(baseline, latest) {
     deltas[key] = deltas[key].slice(0, 10);
   }
 
-  return deltas;
+  return { leaderboards: deltas, totalRaids };
 }
 
 function formatDateRange(start, end) {
+  // Boundaries are Sunday 23:00 UTC = Monday 01:00 CEST
+  // Add 2h to show the Monday date in CEST
+  const s = new Date(start.getTime() + 2 * 3600000);
+  const e = new Date(end.getTime() + 2 * 3600000);
   const opts = { month: 'short', day: 'numeric' };
-  const s = start.toLocaleDateString('en-US', opts);
-  const e = end.toLocaleDateString('en-US', { ...opts, year: 'numeric' });
-  return `${s} \u2013 ${e}`;
+  return `${s.toLocaleDateString('en-US', opts)} \u2013 ${e.toLocaleDateString('en-US', { ...opts, year: 'numeric' })}`;
 }
 
 function timeAgo(isoString) {
@@ -446,9 +454,19 @@ function render() {
   }
   lb.innerHTML = html;
 
+  let rpd = d.raids_per_day;
+  if (!rpd && d.total_raids) {
+    rpd = Math.round(d.total_raids / 7);
+  } else if (!rpd && d.leaderboards && d.leaderboards.ALL) {
+    // Compute from archived data
+    const total = d.leaderboards.ALL.reduce((s, e) => s + e.delta, 0);
+    rpd = Math.round(total / 7);
+  }
+
   statsBar.innerHTML = `
     <div><strong>${d.total_players || '?'}</strong> members</div>
     <div><strong>${d.active_players || '?'}</strong> active raiders</div>
+    ${rpd ? `<div>~<strong>${rpd.toLocaleString()}</strong> raids/day</div>` : ''}
   `;
 }
 

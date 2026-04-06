@@ -117,13 +117,15 @@ def compute_leaderboards(baseline_players, latest_players, top_n=10):
         if total_delta > 0:
             deltas["all"].append({"name": player, "delta": total_delta})
 
+    total_raids = sum(p["delta"] for p in deltas["all"])
+    active = len(deltas["all"])
+
     result = {}
     for key in deltas:
         deltas[key].sort(key=lambda x: -x["delta"])
         result[key.upper()] = deltas[key][:top_n]
 
-    active = len([p for p in deltas["all"] if p["delta"] > 0])
-    return result, active
+    return result, active, total_raids
 
 
 def add_new_players_to_baseline(baseline, latest_players):
@@ -194,10 +196,9 @@ def main():
         week_start = datetime.fromisoformat(meta["week_start"])
 
         # Compute final leaderboards for the completed week
-        leaderboards, active = compute_leaderboards(
+        leaderboards, active, total_raids = compute_leaderboards(
             baseline.get("players", {}), players
         )
-
         week_data = {
             "week": week_key,
             "start": meta["week_start"],
@@ -206,6 +207,7 @@ def main():
             "leaderboards": leaderboards,
             "total_players": len(players),
             "active_players": active,
+            "total_raids": total_raids,
         }
 
         week_path = os.path.join(WEEKS_DIR, f"{week_key}.json")
