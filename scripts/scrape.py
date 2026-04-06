@@ -128,18 +128,26 @@ def compute_leaderboards(baseline_players, latest_players, top_n=10):
     return result, active, total_raids
 
 
-def add_new_players_to_baseline(baseline, latest_players):
-    """Add new players to baseline with their current counts (delta starts at 0)."""
+def sync_baseline_with_latest(baseline, latest_players):
+    """Add new players and fix API-bug gaps in baseline.
+    - New players get current counts as baseline (delta starts at 0)
+    - Players with 0 in baseline but data in latest get synced (prevents fake deltas)
+    """
     baseline_players = baseline.get("players", {})
-    added = 0
+    changed = 0
     for name, data in latest_players.items():
-        if name not in baseline_players:
+        bp = baseline_players.get(name)
+        l_total = sum(data.values())
+        if bp is None:
             baseline_players[name] = dict(data)
-            added += 1
-    if added > 0:
+            changed += 1
+        elif sum(bp.values()) == 0 and l_total > 0:
+            baseline_players[name] = dict(data)
+            changed += 1
+    if changed > 0:
         baseline["players"] = baseline_players
-        print(f"Added {added} new players to baseline")
-    return baseline, added > 0
+        print(f"Synced {changed} players in baseline")
+    return baseline, changed > 0
 
 
 def save_json(path, data):
@@ -230,8 +238,8 @@ def main():
         save_json(baseline_path, latest)
         baseline = latest
     else:
-        # Normal scrape — add any new players to baseline
-        baseline, changed = add_new_players_to_baseline(baseline, players)
+        # Normal scrape — sync baseline (new players + API-bug fixes)
+        baseline, changed = sync_baseline_with_latest(baseline, players)
         if changed:
             save_json(baseline_path, baseline)
 
