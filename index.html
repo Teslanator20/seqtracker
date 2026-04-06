@@ -328,7 +328,7 @@ async function loadCurrentWeek() {
     const weekEnd = new Date(weekStart.getTime() + 7 * 86400000);
     const label = formatDateRange(weekStart, weekEnd);
     const daysElapsed = Math.max(1, (Date.now() - weekStart.getTime()) / 86400000);
-    const raidsPerDay = Math.round(totalRaids / daysElapsed);
+    const raidsPerDay = Math.round(totalRaids / 4 / daysElapsed);
 
     currentWeekData = {
       week: meta.current_week,
@@ -456,11 +456,10 @@ function render() {
 
   let rpd = d.raids_per_day;
   if (!rpd && d.total_raids) {
-    rpd = Math.round(d.total_raids / 7);
+    rpd = Math.round(d.total_raids / 4 / 7);
   } else if (!rpd && d.leaderboards && d.leaderboards.ALL) {
-    // Compute from archived data
     const total = d.leaderboards.ALL.reduce((s, e) => s + e.delta, 0);
-    rpd = Math.round(total / 7);
+    rpd = Math.round(total / 4 / 7);
   }
 
   statsBar.innerHTML = `
