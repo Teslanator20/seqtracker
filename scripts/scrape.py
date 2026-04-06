@@ -10,12 +10,9 @@ DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 WEEKS_DIR = os.path.join(DATA_DIR, "weeks")
 GUILD_URL = "https://api.wynncraft.com/v3/guild/Sequoia"
 
-RAID_KEYS = {
-    "The Canyon Colossus": "tcc",
-    "Orphion's Nexus of Light": "nol",
-    "Nest of the Grootslangs": "notg",
-    "The Nameless Anomaly": "tna",
-}
+# Week boundary: Sunday 23:00 UTC = Monday 01:00 CEST
+BOUNDARY_WEEKDAY = 6  # Sunday (Monday=0 in Python)
+BOUNDARY_HOUR = 23
 
 
 def fetch_guild():
@@ -59,65 +56,67 @@ def merge_with_previous(new_players, previous_path):
     return new_players
 
 
-def get_week_number(dt):
-    """Get ISO week string like '2026-W14'."""
-    return f"{dt.isocalendar()[0]}-W{dt.isocalendar()[1]:02d}"
-
-
 def get_week_start(dt):
-    """Get the most recent Sunday 1 AM UTC before or at dt."""
+    """Get the most recent Sunday 23:00 UTC before or at dt."""
     # Find the most recent Sunday
-    days_since_sunday = dt.weekday() + 1  # Monday=0, Sunday=6 → +1
-    if days_since_sunday == 7:
-        days_since_sunday = 0
-    sunday = dt.replace(hour=1, minute=0, second=0, microsecond=0) - timedelta(days=days_since_sunday)
-    # If we're on Sunday but before 1 AM, go back to previous Sunday
-    if dt.weekday() == 6 and dt.hour < 1:
-        sunday -= timedelta(days=7)
-    return sunday
+    days_since_sunday = (dt.weekday() + 1) % 7  # Sunday=0 offset
+    candidate = (dt - timedelta(days=days_since_sunday)).replace(
+        hour=BOUNDARY_HOUR, minute=0, second=0, microsecond=0
+    )
+    # If we haven't reached the boundary yet today (it's Sunday but before 23:00)
+    if candidate > dt:
+        candidate -= timedelta(days=7)
+    return candidate
 
 
 def get_next_week_boundary(dt):
-    """Get next Sunday 1 AM UTC after dt."""
+    """Get next week boundary after dt."""
     start = get_week_start(dt)
     return start + timedelta(days=7)
 
 
+def get_week_number(dt):
+    """Get ISO week string for the Monday following this boundary.
+    Sunday 23:00 UTC belongs to the week that starts on that Monday."""
+    monday = dt + timedelta(hours=1)  # Sunday 23:00 + 1h = Monday 00:00
+    return f"{monday.isocalendar()[0]}-W{monday.isocalendar()[1]:02d}"
+
+
 def format_week_label(start, end):
-    """Format like 'Mar 30 - Apr 6, 2026'."""
-    s = start.strftime("%b %d")
-    e = end.strftime("%b %d, %Y")
+    """Format like 'Mar 30 - Apr 6, 2026' (showing the Monday dates).
+    start/end are Sunday 23:00 UTC boundaries, +2h gives Monday 01:00 CEST."""
+    mon_start = start + timedelta(hours=2)  # Sunday 23:00 UTC → Monday 01:00 CEST
+    mon_end = end + timedelta(hours=2)
+    s = mon_start.strftime("%b %d")
+    e = mon_end.strftime("%b %d, %Y")
     return f"{s} - {e}"
 
 
 def compute_leaderboards(baseline_players, latest_players, top_n=10):
-    """Compute top N deltas per raid type."""
+    """Compute top N deltas per raid type. Only counts players present in baseline."""
     raid_types = ["tcc", "nol", "notg", "tna"]
     deltas = {rt: [] for rt in raid_types}
     deltas["all"] = []
 
-    all_players = set(latest_players.keys())
+    for player in latest_players:
+        if player not in baseline_players:
+            continue  # New player — no baseline, skip (they'll be added to baseline)
 
-    for player in all_players:
-        end = latest_players.get(player, {"tcc": 0, "nol": 0, "notg": 0, "tna": 0})
-        start = baseline_players.get(player, {"tcc": 0, "nol": 0, "notg": 0, "tna": 0})
+        end = latest_players[player]
+        start = baseline_players[player]
 
         total_delta = 0
         for rt in raid_types:
             diff = end[rt] - start[rt]
+            if diff < 0:
+                diff = 0  # Data reset, can't determine delta
             if diff > 0:
                 deltas[rt].append({"name": player, "delta": diff})
                 total_delta += diff
-            elif diff < 0:
-                # Player data reset, use end value as delta (new guild member)
-                if end[rt] > 0:
-                    deltas[rt].append({"name": player, "delta": end[rt]})
-                    total_delta += end[rt]
 
         if total_delta > 0:
             deltas["all"].append({"name": player, "delta": total_delta})
 
-    # Sort and trim
     result = {}
     for key in deltas:
         deltas[key].sort(key=lambda x: -x["delta"])
@@ -125,6 +124,20 @@ def compute_leaderboards(baseline_players, latest_players, top_n=10):
 
     active = len([p for p in deltas["all"] if p["delta"] > 0])
     return result, active
+
+
+def add_new_players_to_baseline(baseline, latest_players):
+    """Add new players to baseline with their current counts (delta starts at 0)."""
+    baseline_players = baseline.get("players", {})
+    added = 0
+    for name, data in latest_players.items():
+        if name not in baseline_players:
+            baseline_players[name] = dict(data)
+            added += 1
+    if added > 0:
+        baseline["players"] = baseline_players
+        print(f"Added {added} new players to baseline")
+    return baseline, added > 0
 
 
 def save_json(path, data):
@@ -213,6 +226,12 @@ def main():
         # First run — seed baseline
         print("No baseline found, seeding...")
         save_json(baseline_path, latest)
+        baseline = latest
+    else:
+        # Normal scrape — add any new players to baseline
+        baseline, changed = add_new_players_to_baseline(baseline, players)
+        if changed:
+            save_json(baseline_path, baseline)
 
     meta["last_scrape"] = now.isoformat()
     save_json(meta_path, meta)
