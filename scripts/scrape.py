@@ -3,12 +3,18 @@
 
 import json
 import os
+import time
+import urllib.error
 import urllib.request
 from datetime import datetime, timezone, timedelta
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
 WEEKS_DIR = os.path.join(DATA_DIR, "weeks")
 GUILD_URL = "https://api.wynncraft.com/v3/guild/Sequoia"
+PLAYER_URL = "https://api.wynncraft.com/v3/player/{name}"
+# Delay between player fetches. Wynncraft's limit is ~180/min; 0.5s gives
+# ~120/min which leaves headroom for request latency and occasional retries.
+PLAYER_FETCH_DELAY = 0.5
 
 # Week boundary: Sunday 23:00 UTC = Monday 01:00 CEST
 BOUNDARY_WEEKDAY = 6  # Sunday (Monday=0 in Python)
@@ -23,8 +29,14 @@ def fetch_guild():
 
 
 def extract_players(guild_data):
-    """Extract player raid counts from guild API response."""
+    """Extract player raid counts from guild API response.
+
+    Returns (players, uuids) where players maps name -> raid counts and
+    uuids maps name -> uuid (needed to disambiguate duplicate usernames in
+    the player endpoint).
+    """
     players = {}
+    uuids = {}
     for role in ["owner", "chief", "strategist", "captain", "recruiter", "recruit"]:
         for name, info in guild_data.get("members", {}).get(role, {}).items():
             raids = info.get("guildRaids", {}).get("list", {})
@@ -34,24 +46,109 @@ def extract_players(guild_data):
                 "notg": raids.get("Nest of the Grootslangs", 0),
                 "tna": raids.get("The Nameless Anomaly", 0),
             }
-    return players
+            if info.get("uuid"):
+                uuids[name] = info["uuid"]
+    return players, uuids
+
+
+def _fetch_twp_once(identifier):
+    req = urllib.request.Request(
+        PLAYER_URL.format(name=identifier),
+        headers={"User-Agent": "SEQ-Raids-Tracker"},
+    )
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        data = json.loads(resp.read())
+    raids_list = data.get("globalData", {}).get("raids", {}).get("list", {})
+    return int(raids_list.get("unknown", 0))
+
+
+def fetch_player_twp(identifier):
+    """Fetch TWP count for a player by UUID (preferred) or username.
+
+    TWP is not tracked as a guild raid — it only appears in the per-player
+    endpoint as raids.list.unknown. Returns int on success, None on failure.
+    Uses UUIDs to avoid HTTP 300 on duplicate usernames.
+    """
+    try:
+        return _fetch_twp_once(identifier)
+    except urllib.error.HTTPError as e:
+        if e.code == 429:
+            # Rate limited — back off and retry once
+            time.sleep(15)
+            try:
+                return _fetch_twp_once(identifier)
+            except Exception:
+                return None
+        return None
+    except Exception:
+        return None
+
+
+def attach_twp(players, uuids):
+    """Fetch and attach TWP counts to each player in-place.
+
+    Sequential with a small delay to stay under the Wynncraft API rate limit.
+    Missing fetches leave twp=None so merge_with_previous can fall back.
+    """
+    names = list(players.keys())
+    print(f"Fetching TWP for {len(names)} players...")
+    failed = 0
+    for i, name in enumerate(names):
+        identifier = uuids.get(name, name)
+        count = fetch_player_twp(identifier)
+        if count is None:
+            players[name]["twp"] = None
+            failed += 1
+        else:
+            players[name]["twp"] = count
+        time.sleep(PLAYER_FETCH_DELAY)
+        if (i + 1) % 50 == 0:
+            print(f"  TWP progress: {i + 1}/{len(names)}")
+    if failed:
+        print(f"  TWP: {failed} fetches failed (will fall back to previous)")
 
 
 def merge_with_previous(new_players, previous_path):
-    """Handle API bug: keep previous data for players whose counts reset to 0."""
-    if not os.path.exists(previous_path):
-        return new_players
+    """Handle API bugs and missing TWP fetches by falling back to previous data.
 
-    with open(previous_path) as f:
-        previous = json.load(f)
-
+    - Guild raid reset bug: if all 4 guild raid counts hit 0 but previously had
+      data, revert those 4 fields to the previous values.
+    - TWP fallback: if the TWP fetch failed (None), use the previous value if
+      available, otherwise leave the twp field missing entirely. Leaving it
+      missing is important so a later successful fetch doesn't look like a
+      massive one-scrape delta against a poisoned baseline of 0.
+    - TWP is monotonically increasing: if current < previous, keep previous
+      (treats glitches the same as failures).
+    """
+    previous = {}
+    if os.path.exists(previous_path):
+        with open(previous_path) as f:
+            previous = json.load(f)
     prev_players = previous.get("players", {})
+
     for name, data in new_players.items():
-        total = data["tcc"] + data["nol"] + data["notg"] + data["tna"]
-        if total == 0 and name in prev_players:
-            prev_total = sum(prev_players[name].values())
-            if prev_total > 0:
-                new_players[name] = prev_players[name]
+        prev = prev_players.get(name)
+
+        # Guild raid reset bug
+        guild_total = data["tcc"] + data["nol"] + data["notg"] + data["tna"]
+        if guild_total == 0 and prev:
+            prev_guild = prev.get("tcc", 0) + prev.get("nol", 0) + prev.get("notg", 0) + prev.get("tna", 0)
+            if prev_guild > 0:
+                data["tcc"] = prev.get("tcc", 0)
+                data["nol"] = prev.get("nol", 0)
+                data["notg"] = prev.get("notg", 0)
+                data["tna"] = prev.get("tna", 0)
+
+        # TWP fallback
+        prev_twp = prev.get("twp") if prev else None
+        cur_twp = data.get("twp")
+        if cur_twp is None:
+            if prev_twp is not None:
+                data["twp"] = prev_twp
+            else:
+                data.pop("twp", None)  # still unknown — leave missing
+        elif prev_twp is not None and cur_twp < prev_twp:
+            data["twp"] = prev_twp
 
     return new_players
 
@@ -94,7 +191,7 @@ def format_week_label(start, end):
 
 def compute_leaderboards(baseline_players, latest_players, top_n=10):
     """Compute top N deltas per raid type. Only counts players present in baseline."""
-    raid_types = ["tcc", "nol", "notg", "tna"]
+    raid_types = ["tcc", "nol", "notg", "tna", "twp"]
     deltas = {rt: [] for rt in raid_types}
     deltas["all"] = []
 
@@ -107,7 +204,7 @@ def compute_leaderboards(baseline_players, latest_players, top_n=10):
 
         total_delta = 0
         for rt in raid_types:
-            diff = end[rt] - start[rt]
+            diff = end.get(rt, 0) - start.get(rt, 0)
             if diff < 0:
                 diff = 0  # Data reset, can't determine delta
             if diff > 0:
@@ -132,18 +229,30 @@ def sync_baseline_with_latest(baseline, latest_players):
     """Add new players and fix API-bug gaps in baseline.
     - New players get current counts as baseline (delta starts at 0)
     - Players with 0 in baseline but data in latest get synced (prevents fake deltas)
+    - Players missing the twp field in baseline get it backfilled from latest
+      (so their TWP delta starts at 0 the week the field was added)
     """
     baseline_players = baseline.get("players", {})
     changed = 0
     for name, data in latest_players.items():
         bp = baseline_players.get(name)
-        l_total = sum(data.values())
         if bp is None:
             baseline_players[name] = dict(data)
             changed += 1
-        elif sum(bp.values()) == 0 and l_total > 0:
+            continue
+
+        bp_guild = bp.get("tcc", 0) + bp.get("nol", 0) + bp.get("notg", 0) + bp.get("tna", 0)
+        l_guild = data["tcc"] + data["nol"] + data["notg"] + data["tna"]
+        if bp_guild == 0 and l_guild > 0:
             baseline_players[name] = dict(data)
             changed += 1
+            continue
+
+        # Backfill twp on existing baseline entries (pre-TWP data)
+        if "twp" not in bp and "twp" in data:
+            bp["twp"] = data["twp"]
+            changed += 1
+
     if changed > 0:
         baseline["players"] = baseline_players
         print(f"Synced {changed} players in baseline")
@@ -169,10 +278,13 @@ def main():
 
     # Fetch guild data
     guild_data = fetch_guild()
-    players = extract_players(guild_data)
+    players, uuids = extract_players(guild_data)
     print(f"Fetched {len(players)} members")
 
-    # Merge with previous to handle API bugs
+    # Fetch per-player TWP counts (not in the guild endpoint)
+    attach_twp(players, uuids)
+
+    # Merge with previous to handle API bugs and TWP fetch failures
     latest_path = os.path.join(DATA_DIR, "latest.json")
     players = merge_with_previous(players, latest_path)
 

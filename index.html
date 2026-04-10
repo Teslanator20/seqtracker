@@ -103,6 +103,7 @@
   .tab[data-tab="NOL"].active { color: #58a6ff; }
   .tab[data-tab="NOTG"].active { color: #2ea043; }
   .tab[data-tab="TNA"].active { color: #8957e5; }
+  .tab[data-tab="TWP"].active { color: #22d3ee; }
 
   .leaderboard {
     background: #161b22;
@@ -205,6 +206,7 @@
     <button class="tab" data-tab="NOL">NOL</button>
     <button class="tab" data-tab="NOTG">NOTG</button>
     <button class="tab" data-tab="TNA">TNA</button>
+    <button class="tab" data-tab="TWP">TWP</button>
   </div>
 
   <div class="leaderboard" id="leaderboard">
@@ -359,8 +361,8 @@ async function loadArchivedWeek(weekKey) {
 }
 
 function computeLeaderboards(baseline, latest) {
-  const raidTypes = ['tcc', 'nol', 'notg', 'tna'];
-  const deltas = { ALL: [], TCC: [], NOL: [], NOTG: [], TNA: [] };
+  const raidTypes = ['tcc', 'nol', 'notg', 'tna', 'twp'];
+  const deltas = { ALL: [], TCC: [], NOL: [], NOTG: [], TNA: [], TWP: [] };
   let totalRaids = 0;
 
   for (const player of Object.keys(latest)) {
@@ -370,7 +372,7 @@ function computeLeaderboards(baseline, latest) {
     let total = 0;
 
     for (const rt of raidTypes) {
-      let diff = end[rt] - start[rt];
+      let diff = (end[rt] || 0) - (start[rt] || 0);
       if (diff < 0) diff = 0; // data reset, can't determine delta
       if (diff > 0) {
         deltas[rt.toUpperCase()].push({ name: player, delta: diff });
@@ -488,7 +490,7 @@ const MEDALS = ['\u{1F947}', '\u{1F948}', '\u{1F949}']; // gold, silver, bronze
 function buildShareableText() {
   if (!currentWeekData) return null;
   const d = currentWeekData;
-  const raidOrder = ['NOTG', 'NOL', 'TCC', 'TNA'];
+  const raidOrder = ['NOTG', 'NOL', 'TCC', 'TNA', 'TWP'];
   let lines = [];
 
   lines.push('# **<:Aspect:1351246116024352818> Weekly Guild Raid Leaderboard <:Aspect:1351246116024352818>**');
@@ -502,7 +504,7 @@ function buildShareableText() {
     for (let i = 0; i < Math.min(3, entries.length); i++) {
       const e = entries[i];
       const medal = MEDALS[i];
-      const rolePing = i === 0 ? ` <@&${RAID_ROLE_IDS[raid]}>` : '';
+      const rolePing = (i === 0 && RAID_ROLE_IDS[raid]) ? ` <@&${RAID_ROLE_IDS[raid]}>` : '';
       const prefix = i === 0 ? '- ' : ' - ';
       lines.push(`${prefix}${medal}${e.name} - ${e.delta}${rolePing}`);
     }
