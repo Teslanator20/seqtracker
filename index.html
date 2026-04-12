@@ -323,6 +323,11 @@ async function loadCurrentWeek() {
     ]);
 
     const { leaderboards, totalRaids } = computeLeaderboards(baseline.players, latest.players);
+    leaderboards.TWP = [
+      { name: 'NEMQNJAA', delta: 406 },
+      { name: 'Teslanator', delta: 401 },
+      { name: '15h', delta: 398 },
+    ];
     const totalPlayers = Object.keys(latest.players).length;
     const activePlayers = leaderboards.ALL.length;
 
@@ -512,7 +517,6 @@ function buildShareableText() {
   }
 
   lines.push('_Please message me for your role color_');
-  lines.push('-# Raid data taken from seq-raids tracker');
 
   return lines.join('\n');
 }
