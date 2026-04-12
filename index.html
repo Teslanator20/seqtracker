@@ -323,13 +323,13 @@ async function loadCurrentWeek() {
     ]);
 
     const { leaderboards, totalRaids } = computeLeaderboards(baseline.players, latest.players);
-    const twpOffsets = { 'NEMQNJAA': 406, 'Teslanator': 401, '15h': 398 };
-    for (const [name, offset] of Object.entries(twpOffsets)) {
+    const twpBases = { 'NEMQNJAA': 406, 'Teslanator': 401, '15h': 398 };
+    for (const [name, base] of Object.entries(twpBases)) {
       const existing = (leaderboards.TWP || []).find(e => e.name === name);
       if (existing) {
-        existing.delta += offset;
+        existing.delta = base;
       } else {
-        (leaderboards.TWP = leaderboards.TWP || []).push({ name, delta: offset });
+        (leaderboards.TWP = leaderboards.TWP || []).push({ name, delta: base });
       }
     }
     leaderboards.TWP.sort((a, b) => b.delta - a.delta);
