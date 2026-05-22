@@ -19,6 +19,8 @@ jobs:
           python-version: '3.12'
 
       - name: Run scraper
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: python scripts/scrape.py
 
       - name: Commit and push

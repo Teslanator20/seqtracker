@@ -3,6 +3,7 @@
 
 import json
 import os
+import urllib.error
 import urllib.request
 from datetime import datetime, timezone, timedelta
 
@@ -28,6 +29,34 @@ def fetch_guild():
     req = urllib.request.Request(GUILD_URL, headers={"User-Agent": "SEQ-Raids-Tracker"})
     with urllib.request.urlopen(req, timeout=30) as resp:
         return json.loads(resp.read())
+
+
+def notify_level_up(prev_level, new_level, xp_percent):
+    """Post a Discord webhook message when the guild levels up.
+    No-op if DISCORD_WEBHOOK_URL is not set."""
+    url = os.environ.get("DISCORD_WEBHOOK_URL")
+    if not url:
+        return
+    payload = {
+        "content": (
+            f":tada: **Sequoia** just leveled up: "
+            f"**{prev_level} → {new_level}** (xp {xp_percent}%)"
+        )
+    }
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            resp.read()
+        print(f"Webhook sent: level {prev_level} → {new_level}")
+    except urllib.error.HTTPError as e:
+        print(f"Webhook HTTP {e.code}: {e.read()[:200]}")
+    except Exception as e:
+        print(f"Webhook error: {e}")
 
 
 def extract_players(guild_data):
@@ -198,6 +227,9 @@ def main():
     players = extract_players(guild_data)
     print(f"Fetched {len(players)} members")
 
+    guild_level = guild_data.get("level")
+    guild_xp = guild_data.get("xpPercent")
+
     # Merge with previous to fill in restricted/missing members
     latest_path = os.path.join(DATA_DIR, "latest.json")
     players = merge_with_previous(players, latest_path)
@@ -214,6 +246,14 @@ def main():
         "available_weeks": [],
         "last_scrape": now.isoformat(),
     }
+
+    # Guild level-up notification
+    prev_level = meta.get("guild_level")
+    if guild_level is not None:
+        if prev_level is not None and guild_level > prev_level:
+            notify_level_up(prev_level, guild_level, guild_xp)
+        meta["guild_level"] = guild_level
+        meta["guild_xp_percent"] = guild_xp
 
     # Load baseline
     baseline_path = os.path.join(DATA_DIR, "baseline.json")
