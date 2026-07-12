@@ -365,23 +365,24 @@ function computeLeaderboards(baseline, latest) {
   const deltas = { ALL: [], TCC: [], NOL: [], NOTG: [], TNA: [], TWP: [] };
   let totalRaids = 0;
 
-  for (const player of Object.keys(latest)) {
-    if (!baseline[player]) continue; // New player, no baseline — skip
-    const end = latest[player];
-    const start = baseline[player];
+  for (const uuid of Object.keys(latest)) {
+    if (!baseline[uuid]) continue; // New player, no baseline — skip
+    const end = latest[uuid];
+    const start = baseline[uuid];
+    const displayName = end.name;
     let total = 0;
 
     for (const rt of raidTypes) {
       let diff = (end[rt] || 0) - (start[rt] || 0);
       if (diff < 0) diff = 0; // data reset, can't determine delta
       if (diff > 0) {
-        deltas[rt.toUpperCase()].push({ name: player, delta: diff });
+        deltas[rt.toUpperCase()].push({ name: displayName, delta: diff });
         total += diff;
       }
     }
 
     if (total > 0) {
-      deltas.ALL.push({ name: player, delta: total });
+      deltas.ALL.push({ name: displayName, delta: total });
       totalRaids += total;
     }
   }
