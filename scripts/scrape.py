@@ -153,6 +153,23 @@ def track_name_changes(players, meta_players_path, now_iso):
             changed = True
     if changed:
         save_json(meta_players_path, log)
+    return log
+
+
+def build_name_index(rename_log):
+    """name (any name ever seen, current or old, lowercased) -> uuid.
+
+    Lets a caller resolve a player by whatever name they know them by, even
+    if that name was later renamed away from. Names are only unique at a
+    point in time on Wynncraft; if two different people historically held
+    the same name, the most recently seen owner wins here.
+    """
+    index = {}
+    for uuid, entry in rename_log.items():
+        for old in entry["history"]:
+            index[old["name"].lower()] = uuid
+        index[entry["name"].lower()] = uuid
+    return index
 
 
 def get_week_start(dt):
@@ -301,8 +318,10 @@ def main():
     # name-keyed baseline/latest.json still on disk from before UUID keying.
     name_to_uuid = {data["name"]: uuid for uuid, data in players.items()}
 
-    # Track renames (uuid stays, display name changes) in a standalone log.
-    track_name_changes(players, os.path.join(DATA_DIR, "players.json"), now.isoformat())
+    # Track renames (uuid stays, display name changes) in a standalone log,
+    # plus a name->uuid index (old and current names) for lookups by name.
+    rename_log = track_name_changes(players, os.path.join(DATA_DIR, "players.json"), now.isoformat())
+    save_json(os.path.join(DATA_DIR, "name_index.json"), build_name_index(rename_log))
 
     guild_level = guild_data.get("level")
     guild_xp = guild_data.get("xpPercent")
